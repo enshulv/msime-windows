@@ -20,6 +20,7 @@
 #include "ipc/candidate_ui_owner.h"
 #include "ipc/traditional_variant_expansion_policy.h"
 #include "ipc/event_listener.h"
+#include "ipc/traditional_variant_choice_policy.h"
 #include "engine/contracts/v_mode_input.h"
 #include "window/caret_state_indicator_policy.h"
 
@@ -162,8 +163,13 @@ WordItem WithFirstTraditionalSpelling(WordItem item);
 // 一段简体文字整串的第一写法：繁体模式（非日语方案）下取排序后的第一种写法，否则原样返回。
 // 不看 U 模式：造词前缀不来自拆字结果。
 std::string FirstSpellingOfText(const std::string &text);
+// 一段简体文字整串按当前地区排序（不计写法记录）的第一种繁体写法，不看字形设置；没有写法时原样返回。
+std::string RegionalFirstSpellingOfText(const std::string &text);
 // 当前造词已选部分（GlobalIme::composition.creating_word）的简体底词、显示文字与第一写法标记。
 FanyImeIpc::ChosenText CreatingWordChosenText();
+// 选中 item 这一刻的候选环境，判定要不要读写繁体写法记录（见 FanyImeIpc::RemembersVariantChoices）。
+// item 本身是日语候选时按日语方案算。要在 reset_state 之前取，理由同 IsRadicalCandidateListActive。
+FanyImeIpc::VariantChoiceScope CurrentVariantChoiceScope(const WordItem &item);
 // 每个按键包到达时调用：记下它是否来自密码 / PIN 输入框，并在宿主或焦点会话变化时清空 AI 上下文。
 void NoteAiContextKeySource(uint64_t client_id, uint64_t activation_epoch, bool sensitive_field);
 void AppendAiContext(const std::string &committed_word);
@@ -269,6 +275,19 @@ void EnqueueLearnEnglishSlotTask(const std::string &code, int english_index, std
                                  uint64_t client_id, uint64_t activation_epoch);
 // 日期时间格式的调频：选中了 format_id（WordItem::pinyin）那种格式。
 void EnqueueLearnDateTimeOrderTask(const std::string &format_id, uint64_t client_id, uint64_t activation_epoch);
+// OpenCC 写法索引加上繁体写法记录。查记录只查内存，不读库：第一次查时把读表排到词库写线程上，
+// 读完之前只查得到这个进程里新做的改动。
+const ChineseConverter::TraditionalSpellingIndex &TraditionalSpellingIndexWithUserChoices();
+// 选中、置顶或固定 item 之后，按 FanyImeIpc::VariantChoiceForSelection 记下或删掉写法记录：改动立即生效，
+// 写库排到词库写线程上。scope 由调用方在 reset_state 之前取（见 CurrentVariantChoiceScope）。
+void RememberOrForgetSelectedTraditionalVariant(const FanyImeIpc::VariantChoiceScope &scope, const WordItem &item);
+// 造好的词（键 key、简体词 word）以 committed_text 上屏之后，按 FanyImeIpc::VariantChoiceForComposedWord
+// 记下或删掉写法记录。all_first_spellings 是每一段是不是都选了第一写法。
+void RememberOrForgetComposedTraditionalVariant(const FanyImeIpc::VariantChoiceScope &scope, bool all_first_spellings,
+                                                const std::string &key, const std::string &word,
+                                                const std::string &committed_text);
+// 删除候选 item 之后，按 FanyImeIpc::VariantChoiceWordToForgetOnDelete 删掉它的底词在所有键下的写法记录。
+void ForgetTraditionalVariantsOfDeletedCandidate(const FanyImeIpc::VariantChoiceScope &scope, const WordItem &item);
 
 // event_listener_keys.cpp
 // 把译文页或日期页换回进入之前的那一屏；都没打开时什么都不做。
